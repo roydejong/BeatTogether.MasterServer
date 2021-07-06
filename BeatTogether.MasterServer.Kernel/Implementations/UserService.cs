@@ -8,6 +8,7 @@ using BeatTogether.MasterServer.Data.Abstractions.Repositories;
 using BeatTogether.MasterServer.Data.Entities;
 using BeatTogether.MasterServer.Kernel.Abstractions;
 using BeatTogether.MasterServer.Kernel.Abstractions.Providers;
+using BeatTogether.MasterServer.Kernel.Configuration;
 using BeatTogether.MasterServer.Messaging.Enums;
 using BeatTogether.MasterServer.Messaging.Messages.User;
 using BeatTogether.MasterServer.Messaging.Models;
@@ -17,6 +18,7 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
 {
     public class UserService : IUserService
     {
+        private readonly MasterServerConfiguration _configuration;
         private readonly MasterServerMessageDispatcher _messageDispatcher;
         private readonly IRelayServerService _relayServerService;
         private readonly IServerRepository _serverRepository;
@@ -25,12 +27,14 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
         private readonly ILogger _logger;
 
         public UserService(
+            MasterServerConfiguration configuration,
             MasterServerMessageDispatcher messageDispatcher,
             IRelayServerService relayServerService,
             IServerRepository serverRepository,
             IMasterServerSessionService sessionService,
             IServerCodeProvider serverCodeProvider)
         {
+            _configuration = configuration;   
             _messageDispatcher = messageDispatcher;
             _relayServerService = relayServerService;
             _serverRepository = serverRepository;
@@ -103,7 +107,7 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 RemoteEndPoint = (IPEndPoint)session.EndPoint,
                 Secret = request.Secret,
                 Code = _serverCodeProvider.Generate(),
-                IsPublic = request.DiscoveryPolicy == DiscoveryPolicy.Public,
+                IsQuickPlay = request.Password == _configuration.QuickPlayRegistrationPassword,
                 DiscoveryPolicy = (Data.Enums.DiscoveryPolicy)request.DiscoveryPolicy,
                 InvitePolicy = (Data.Enums.InvitePolicy)request.InvitePolicy,
                 BeatmapDifficultyMask = (Data.Enums.BeatmapDifficultyMask)request.Configuration.BeatmapDifficultyMask,
@@ -140,12 +144,13 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
             }
 
             _logger.Information(
-                "Successfully created server " +
+                $"Successfully created {(server.IsQuickPlay ? "Quick Play" : "custom")} server " +
                 $"(ServerName='{request.ServerName}', " +
                 $"UserId='{request.UserId}', " +
                 $"UserName='{request.UserName}', " +
                 $"Secret='{request.Secret}', " +
                 $"Code='{server.Code}', " +
+                $"IsQuickPlay='{server.IsQuickPlay}', " +
                 $"CurrentPlayerCount={request.CurrentPlayerCount}, " +
                 $"MaximumPlayerCount={request.MaximumPlayerCount}, " +
                 $"DiscoveryPolicy={request.DiscoveryPolicy}, " +
@@ -243,7 +248,7 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
             );
         }
 
-        public Task<ConnectToServerResponse> ConnectToMatchmaking(MasterServerSession session, ConnectToMatchmakingRequest request)
+        public async Task<ConnectToServerResponse> ConnectToMatchmaking(MasterServerSession session, ConnectToMatchmakingRequest request)
         {
             _logger.Verbose(
                 $"Handling {nameof(ConnectToMatchmakingRequest)} " +
@@ -255,10 +260,111 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 $"GameplayModifiersMask={request.Configuration.GameplayModifiersMask}, " +
                 $"Secret='{request.Secret}')."
             );
-            return Task.FromResult(new ConnectToServerResponse
+
+            Server quickPlayServer = null;
+
+            if (!String.IsNullOrEmpty(request.Secret))
             {
-                Result = ConnectToServerResponse.ResultCode.UnknownError
+                // Client is connecting to a specific quick play server
+                quickPlayServer = await _serverRepository.GetServer(request.Secret);
+                
+                if (quickPlayServer == null || !quickPlayServer.IsQuickPlay)
+                {
+                    _logger.Warning($"Quick Play server with not found (Secret={request.Secret})");
+                    return new ConnectToServerResponse
+                    {
+                        Result = ConnectToServerResponse.ResultCode.InvalidCode
+                    };
+                }
+            }
+            else
+            {
+                // Matchmaking to first available Quick Play server with available slots
+                quickPlayServer = await _serverRepository.GetAvailableQuickPlayServer();
+
+                if (quickPlayServer == null)
+                {
+                    _logger.Warning("No available Quick Play servers found");
+                    return new ConnectToServerResponse
+                    {
+                        Result = ConnectToServerResponse.ResultCode.ServerAtCapacity 
+                    };
+                }
+            }
+            
+            // Capacity double check, in case of direct connect
+            if (quickPlayServer.CurrentPlayerCount >= quickPlayServer.MaximumPlayerCount)
+                return new ConnectToServerResponse
+                {
+                    Result = ConnectToServerResponse.ResultCode.ServerAtCapacity
+                };
+            
+            if (!_sessionService.TryGetSession(quickPlayServer.RemoteEndPoint, out var hostSession))
+            {
+                _logger.Warning(
+                    "Failed to retrieve server host session while handling " +
+                    $"{nameof(ConnectToMatchmakingRequest)} " +
+                    $"(RemoteEndPoint='{quickPlayServer.RemoteEndPoint}', " +
+                    $"UserId='{request.UserId}', " +
+                    $"UserName='{request.UserName}', " +
+                    $"Random='{BitConverter.ToString(request.Random)}', " +
+                    $"PublicKey='{BitConverter.ToString(request.PublicKey)}', " +
+                    $"Secret='{request.Secret})."
+                );
+                return new ConnectToServerResponse
+                {
+                    Result = ConnectToServerResponse.ResultCode.UnknownError
+                };
+            }
+            
+            // Let the host know that someone is about to connect (hole-punch)
+            var connectingEndPoint = (IPEndPoint)session.EndPoint;
+            var remoteEndPoint = (IPEndPoint)hostSession.EndPoint;
+            
+            await _messageDispatcher.SendWithRetry(hostSession, new PrepareForConnectionRequest
+            {
+                UserId = request.UserId,
+                UserName = request.UserName,
+                RemoteEndPoint = connectingEndPoint,
+                Random = request.Random,
+                PublicKey = request.PublicKey,
+                IsConnectionOwner = false,
+                IsDedicatedServer = false
             });
+
+            session.Secret = request.Secret;
+
+            _logger.Information(
+                "Successfully connected to Quick Play server " +
+                $"(RemoteEndPoint='{remoteEndPoint}', " +
+                $"UserId='{request.UserId}', " +
+                $"UserName='{request.UserName}', " +
+                $"Random='{BitConverter.ToString(request.Random)}', " +
+                $"PublicKey='{BitConverter.ToString(request.PublicKey)}', " +
+                $"Secret='{request.Secret})."
+            );
+            return new ConnectToServerResponse
+            {
+                Result = ConnectToServerResponse.ResultCode.Success,
+                UserId = quickPlayServer.Host.UserId,
+                UserName = quickPlayServer.Host.UserName,
+                Secret = quickPlayServer.Secret,
+                DiscoveryPolicy = (DiscoveryPolicy)quickPlayServer.DiscoveryPolicy,
+                InvitePolicy = (InvitePolicy)quickPlayServer.InvitePolicy,
+                MaximumPlayerCount = quickPlayServer.MaximumPlayerCount,
+                Configuration = new GameplayServerConfiguration()
+                {
+                    BeatmapDifficultyMask = (BeatmapDifficultyMask)quickPlayServer.BeatmapDifficultyMask,
+                    GameplayModifiersMask = (GameplayModifiersMask)quickPlayServer.GameplayModifiersMask,
+                    SongPackBloomFilterTop = quickPlayServer.SongPackBloomFilterTop,
+                    SongPackBloomFilterBottom = quickPlayServer.SongPackBloomFilterBottom
+                },
+                IsConnectionOwner = true,
+                IsDedicatedServer = true,
+                RemoteEndPoint = remoteEndPoint,
+                Random = quickPlayServer.Random,
+                PublicKey = quickPlayServer.PublicKey
+            };
         }
 
         public async Task<ConnectToServerResponse> ConnectToServer(MasterServerSession session, ConnectToServerRequest request)
@@ -386,6 +492,13 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
 
             session.Secret = request.Secret;
 
+            // TODO Remove me eventually
+            if (connectingEndPoint.Address.ToString() != "127.0.0.1")
+            {
+                remoteEndPoint.Address = IPAddress.Parse("192.168.178.101");
+            }
+            // TODO Remove me eventually
+
             _logger.Information(
                 "Successfully connected to server " +
                 $"(RemoteEndPoint='{remoteEndPoint}', " +
@@ -415,7 +528,7 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                     SongPackBloomFilterBottom = server.SongPackBloomFilterBottom
                 },
                 IsConnectionOwner = true,
-                IsDedicatedServer = false,
+                IsDedicatedServer = server.IsQuickPlay,
                 RemoteEndPoint = remoteEndPoint,
                 Random = server.Random,
                 PublicKey = server.PublicKey

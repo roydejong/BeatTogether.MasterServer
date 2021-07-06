@@ -1,4 +1,6 @@
 ﻿using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using BeatTogether.MasterServer.Data.Abstractions.Repositories;
 using BeatTogether.MasterServer.Data.Entities;
@@ -9,6 +11,7 @@ namespace BeatTogether.MasterServer.Data.Implementations.Repositories
     {
         private static ConcurrentDictionary<string, Server> _servers = new();
         private static ConcurrentDictionary<string, Server> _serversByCode = new();
+        private static ConcurrentDictionary<string, Server> _quickPlayServers = new();
 
         public Task<Server> GetServer(string secret)
         {
@@ -24,11 +27,19 @@ namespace BeatTogether.MasterServer.Data.Implementations.Repositories
             return Task.FromResult(server);
         }
 
+        public Task<Server> GetAvailableQuickPlayServer()
+        {
+            return Task.FromResult(_quickPlayServers.Values.FirstOrDefault(server =>
+                server.IsQuickPlay && server.CurrentPlayerCount < server.MaximumPlayerCount));
+        }
+
         public Task<bool> AddServer(Server server)
         {
             if (!_servers.TryAdd(server.Secret, server))
                 return Task.FromResult(false);
             _serversByCode[server.Code] = server;
+            if (server.IsQuickPlay)
+                _quickPlayServers.TryAdd(server.Secret, server);
             return Task.FromResult(true);
         }
 
@@ -37,6 +48,8 @@ namespace BeatTogether.MasterServer.Data.Implementations.Repositories
             if (!_servers.TryRemove(secret, out var server))
                 return Task.FromResult(false);
             _serversByCode.TryRemove(server.Code, out _);
+            if (server.IsQuickPlay)
+                _quickPlayServers.Remove(server.Secret, out _);
             return Task.FromResult(true);
         }
 

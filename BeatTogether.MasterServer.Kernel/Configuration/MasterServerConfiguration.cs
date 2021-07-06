@@ -2,7 +2,8 @@
 {
     public class MasterServerConfiguration
     {
-        public string EndPoint { get; set; } = "127.0.0.1:2328";
+        public string EndPoint { get; set; } = "0.0.0.0:2328";
         public int SessionTimeToLive { get; set; } = 180;
+        public string QuickPlayRegistrationPassword { get; set; } = "IWantToBeAQuickPlayServer";
     }
 }

@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="BeatTogether.Core.Messaging" Version="1.7.4" />
+    <ProjectReference Include="..\..\BeatTogether.Core\BeatTogether.Core.Messaging\BeatTogether.Core.Messaging.csproj" />
   </ItemGroup>
 
 </Project>

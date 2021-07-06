@@ -7,7 +7,7 @@ redis.call(
     "HostUserName", @hostUserName,
     "RemoteEndPoint", @remoteEndPoint,
     "Code", @code,
-    "IsPublic", @isPublic,
+    "IsQuickPlay", @isQuickPlay,
     "DiscoveryPolicy", @discoveryPolicy,
     "InvitePolicy", @invitePolicy,
     "BeatmapDifficultyMask", @beatmapDifficultyMask,
@@ -20,7 +20,7 @@ redis.call(
     "PublicKey", @publicKey
 )
 redis.call("HSET", @serversByCodeKey, @code, @secret)
-if tonumber(@isPublic) == 1 then
+if tonumber(@isQuickPlay) == 1 then
     redis.call("ZADD", @publicServersByPlayerCountKey, @currentPlayerCount, @secret)
 end
 return true

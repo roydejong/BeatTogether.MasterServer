@@ -1,4 +1,5 @@
-﻿using System.IO;
+﻿using System;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
@@ -47,6 +48,12 @@ namespace BeatTogether.MasterServer.Data.Implementations.Repositories
             return await GetServer(secret);
         }
 
+        public Task<Server> GetAvailableQuickPlayServer()
+        {
+            // TODO Redis
+            throw new NotImplementedException();
+        }
+
         public async Task<bool> AddServer(Server server)
         {
             var database = _connectionMultiplexer.GetDatabase();
@@ -62,7 +69,7 @@ namespace BeatTogether.MasterServer.Data.Implementations.Repositories
                     remoteEndPoint = (RedisValue)server.RemoteEndPoint.ToString(),
                     secret = (RedisValue)server.Secret,
                     code = (RedisValue)server.Code,
-                    isPublic = (RedisValue)server.IsPublic,
+                    isQuickPlay = (RedisValue)server.IsQuickPlay,
                     discoveryPolicy = (RedisValue)(int)server.DiscoveryPolicy,
                     invitePolicy = (RedisValue)(int)server.InvitePolicy,
                     beatmapDifficultyMask = (RedisValue)(int)server.BeatmapDifficultyMask,
@@ -102,7 +109,7 @@ namespace BeatTogether.MasterServer.Data.Implementations.Repositories
             var server = await GetServer(secret);
             if (server == null)
                 return false;
-            if (server.IsPublic)
+            if (server.IsQuickPlay)
                 database.SortedSetIncrement(RedisKeys.PublicServersByPlayerCount, secret, 1.0);
             return true;
         }
@@ -114,8 +121,10 @@ namespace BeatTogether.MasterServer.Data.Implementations.Repositories
                 _updateCurrentPlayerCountScript,
                 parameters: new
                 {
+                    secret = (RedisValue)secret,
                     serverKey = RedisKeys.Servers(secret),
-                    currentPlayerCount = (RedisValue)currentPlayerCount
+                    currentPlayerCount = (RedisValue)currentPlayerCount,
+                    publicServersByPlayerCountKey = RedisKeys.PublicServersByPlayerCount,
                 },
                 flags: CommandFlags.DemandMaster | CommandFlags.FireAndForget
             );
@@ -137,7 +146,7 @@ namespace BeatTogether.MasterServer.Data.Implementations.Repositories
                 },
                 RemoteEndPoint = IPEndPoint.Parse(dictionary["RemoteEndPoint"]),
                 Code = dictionary["Code"],
-                IsPublic = (bool)dictionary["IsPublic"],
+                IsQuickPlay = (bool)dictionary["IsPublic"],
                 DiscoveryPolicy = (DiscoveryPolicy)(int)dictionary["DiscoveryPolicy"],
                 InvitePolicy = (InvitePolicy)(int)dictionary["InvitePolicy"],
                 BeatmapDifficultyMask = (BeatmapDifficultyMask)(int)dictionary["BeatmapDifficultyMask"],

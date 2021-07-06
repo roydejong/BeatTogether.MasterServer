@@ -61,6 +61,7 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
             session.EncryptionParameters = null;
             session.Cookie = _cookieProvider.GetCookie();
             session.ClientRandom = request.Random;
+            _logger.Warning("This log fixes things");
             return Task.FromResult(new HelloVerifyRequest
             {
                 Cookie = session.Cookie

@@ -9,7 +9,7 @@ namespace BeatTogether.MasterServer.Data.Entities
         public IPEndPoint RemoteEndPoint { get; set; }
         public string Secret { get; set; }
         public string Code { get; set; }
-        public bool IsPublic { get; set; }
+        public bool IsQuickPlay { get; set; }
         public DiscoveryPolicy DiscoveryPolicy { get; set; }
         public InvitePolicy InvitePolicy { get; set; }
         public BeatmapDifficultyMask BeatmapDifficultyMask { get; set; }

@@ -7,6 +7,7 @@ namespace BeatTogether.MasterServer.Data.Abstractions.Repositories
     {
         Task<Server> GetServer(string secret);
         Task<Server> GetServerByCode(string code);
+        Task<Server> GetAvailableQuickPlayServer();
 
         Task<bool> AddServer(Server server);
         Task<bool> RemoveServer(string secret);
