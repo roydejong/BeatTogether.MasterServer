@@ -531,7 +531,8 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 IsDedicatedServer = server.IsQuickPlay,
                 RemoteEndPoint = remoteEndPoint,
                 Random = server.Random,
-                PublicKey = server.PublicKey
+                PublicKey = server.PublicKey,
+                Code = server.Code
             };
         }
 
