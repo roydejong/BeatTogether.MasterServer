@@ -22,6 +22,7 @@ namespace BeatTogether.MasterServer.Messaging.Messages.User
         public BeatmapLevelSelectionMask SelectionMask { get; set; }
         public byte[] Random { get; set; }
         public byte[] PublicKey { get; set; }
+        public GameplayServerConfiguration GameplayServerConfiguration { get; set; } 
 
         public void WriteTo(ref SpanBufferWriter bufferWriter)
         {
@@ -48,6 +49,11 @@ namespace BeatTogether.MasterServer.Messaging.Messages.User
             
             bufferWriter.WriteBytes(Random);
             bufferWriter.WriteVarBytes(PublicKey);
+
+            if (protocolVersion >= 4)
+            {
+                GameplayServerConfiguration.WriteTo(ref bufferWriter);
+            }
         }
 
         public void ReadFrom(ref SpanBufferReader bufferReader)
@@ -76,6 +82,16 @@ namespace BeatTogether.MasterServer.Messaging.Messages.User
             
             Random = bufferReader.ReadBytes(32).ToArray();
             PublicKey = bufferReader.ReadVarBytes().ToArray();
+
+            if (protocolVersion >= 4)
+            {
+                GameplayServerConfiguration = new GameplayServerConfiguration();
+                GameplayServerConfiguration.ReadFrom(ref bufferReader);
+
+                MaximumPlayerCount = GameplayServerConfiguration.MaxPlayerCount;
+                DiscoveryPolicy = GameplayServerConfiguration.DiscoveryPolicy;
+                InvitePolicy = GameplayServerConfiguration.InvitePolicy;
+            }
         }
     }
 }

@@ -250,7 +250,7 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
 
         public async Task<ConnectToServerResponse> ConnectToMatchmaking(MasterServerSession session, ConnectToMatchmakingRequest request)
         {
-            _logger.Verbose(
+            _logger.Information(
                 $"Handling {nameof(ConnectToMatchmakingRequest)} " +
                 $"(UserId='{request.UserId}', " +
                 $"UserName='{request.UserName}', " +
@@ -258,6 +258,7 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 $"PublicKey='{BitConverter.ToString(request.PublicKey)}', " +
                 $"BeatmapDifficultyMask={request.Configuration.BeatmapDifficultyMask}, " +
                 $"GameplayModifiersMask={request.Configuration.GameplayModifiersMask}, " +
+                $"Code={request.Code}, " +
                 $"Secret='{request.Secret}')."
             );
 
