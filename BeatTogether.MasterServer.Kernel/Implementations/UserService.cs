@@ -81,8 +81,8 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 $"MaximumPlayerCount={request.MaximumPlayerCount}, " +
                 $"DiscoveryPolicy={request.DiscoveryPolicy}, " +
                 $"InvitePolicy={request.InvitePolicy}, " +
-                $"BeatmapDifficultyMask={request.Configuration.BeatmapDifficultyMask}, " +
-                $"GameplayModifiersMask={request.Configuration.GameplayModifiersMask}, " +
+                $"BeatmapDifficultyMask={request.SelectionMask.BeatmapDifficultyMask}, " +
+                $"GameplayModifiersMask={request.SelectionMask.GameplayModifiersMask}, " +
                 $"Random={BitConverter.ToString(request.Random)}, " +
                 $"PublicKey={BitConverter.ToString(request.PublicKey)})."
             );
@@ -110,10 +110,10 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 IsQuickPlay = request.Password == _configuration.QuickPlayRegistrationPassword,
                 DiscoveryPolicy = (Data.Enums.DiscoveryPolicy)request.DiscoveryPolicy,
                 InvitePolicy = (Data.Enums.InvitePolicy)request.InvitePolicy,
-                BeatmapDifficultyMask = (Data.Enums.BeatmapDifficultyMask)request.Configuration.BeatmapDifficultyMask,
-                GameplayModifiersMask = (Data.Enums.GameplayModifiersMask)request.Configuration.GameplayModifiersMask,
-                SongPackBloomFilterTop = request.Configuration.SongPackBloomFilterTop,
-                SongPackBloomFilterBottom = request.Configuration.SongPackBloomFilterBottom,
+                BeatmapDifficultyMask = (Data.Enums.BeatmapDifficultyMask)request.SelectionMask.BeatmapDifficultyMask,
+                GameplayModifiersMask = (Data.Enums.GameplayModifiersMask)request.SelectionMask.GameplayModifiersMask,
+                SongPackBloomFilterTop = request.SelectionMask.SongPackBloomFilterTop,
+                SongPackBloomFilterBottom = request.SelectionMask.SongPackBloomFilterBottom,
                 CurrentPlayerCount = request.CurrentPlayerCount,
                 MaximumPlayerCount = request.MaximumPlayerCount,
                 Random = request.Random,
@@ -132,8 +132,8 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                     $"MaximumPlayerCount={request.MaximumPlayerCount}, " +
                     $"DiscoveryPolicy={request.DiscoveryPolicy}, " +
                     $"InvitePolicy={request.InvitePolicy}, " +
-                    $"BeatmapDifficultyMask={request.Configuration.BeatmapDifficultyMask}, " +
-                    $"GameplayModifiersMask={request.Configuration.GameplayModifiersMask}, " +
+                    $"BeatmapDifficultyMask={request.SelectionMask.BeatmapDifficultyMask}, " +
+                    $"GameplayModifiersMask={request.SelectionMask.GameplayModifiersMask}, " +
                     $"Random={BitConverter.ToString(request.Random)}, " +
                     $"PublicKey={BitConverter.ToString(request.PublicKey)})."
                 );
@@ -155,8 +155,8 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 $"MaximumPlayerCount={request.MaximumPlayerCount}, " +
                 $"DiscoveryPolicy={request.DiscoveryPolicy}, " +
                 $"InvitePolicy={request.InvitePolicy}, " +
-                $"BeatmapDifficultyMask={request.Configuration.BeatmapDifficultyMask}, " +
-                $"GameplayModifiersMask={request.Configuration.GameplayModifiersMask}, " +
+                $"BeatmapDifficultyMask={request.SelectionMask.BeatmapDifficultyMask}, " +
+                $"GameplayModifiersMask={request.SelectionMask.GameplayModifiersMask}, " +
                 $"Random='{BitConverter.ToString(request.Random)}', " +
                 $"PublicKey='{BitConverter.ToString(request.PublicKey)}')."
             );
@@ -268,9 +268,23 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 // Client is connecting to a specific quick play server
                 quickPlayServer = await _serverRepository.GetServer(request.Secret);
                 
-                if (quickPlayServer == null || !quickPlayServer.IsQuickPlay)
+                if (quickPlayServer == null)
                 {
-                    _logger.Warning($"Quick Play server with not found (Secret={request.Secret})");
+                    _logger.Warning($"Requested Quick Play server not found (Secret={request.Secret})");
+                    return new ConnectToServerResponse
+                    {
+                        Result = ConnectToServerResponse.ResultCode.InvalidCode
+                    };
+                }
+            }
+            else if (!String.IsNullOrEmpty(request.Code))
+            {
+                // Client is connecting to a specific quick play server
+                quickPlayServer = await _serverRepository.GetServerByCode(request.Code);
+                
+                if (quickPlayServer == null)
+                {
+                    _logger.Warning($"Requested Quick Play server with not found (Code={request.Code})");
                     return new ConnectToServerResponse
                     {
                         Result = ConnectToServerResponse.ResultCode.InvalidCode
@@ -352,7 +366,7 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 DiscoveryPolicy = (DiscoveryPolicy)quickPlayServer.DiscoveryPolicy,
                 InvitePolicy = (InvitePolicy)quickPlayServer.InvitePolicy,
                 MaximumPlayerCount = quickPlayServer.MaximumPlayerCount,
-                Configuration = new GameplayServerConfiguration()
+                SelectionMask = new BeatmapLevelSelectionMask()
                 {
                     BeatmapDifficultyMask = (BeatmapDifficultyMask)quickPlayServer.BeatmapDifficultyMask,
                     GameplayModifiersMask = (GameplayModifiersMask)quickPlayServer.GameplayModifiersMask,
@@ -363,7 +377,17 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 IsDedicatedServer = true,
                 RemoteEndPoint = remoteEndPoint,
                 Random = quickPlayServer.Random,
-                PublicKey = quickPlayServer.PublicKey
+                PublicKey = quickPlayServer.PublicKey,
+                Code = quickPlayServer.Code,
+                Configuration = new GameplayServerConfiguration()
+                {
+                    MaxPlayerCount = quickPlayServer.MaximumPlayerCount,
+                    DiscoveryPolicy = (DiscoveryPolicy)quickPlayServer.DiscoveryPolicy,
+                    InvitePolicy = (InvitePolicy)quickPlayServer.InvitePolicy,
+                    GameplayServerMode = GameplayServerMode.Managed,
+                    SongSelectionMode = SongSelectionMode.OwnerPicks,
+                    GameplayServerControlSettings = GameplayServerControlSettings.All
+                }
             };
         }
 
@@ -495,7 +519,7 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
             // TODO Remove me eventually
             if (connectingEndPoint.Address.ToString() != "127.0.0.1")
             {
-                remoteEndPoint.Address = IPAddress.Parse("192.168.178.101");
+                remoteEndPoint = new IPEndPoint(IPAddress.Parse("192.168.178.101"), remoteEndPoint.Port);
             }
             // TODO Remove me eventually
 
@@ -520,7 +544,7 @@ namespace BeatTogether.MasterServer.Kernel.Implementations
                 DiscoveryPolicy = (DiscoveryPolicy)server.DiscoveryPolicy,
                 InvitePolicy = (InvitePolicy)server.InvitePolicy,
                 MaximumPlayerCount = server.MaximumPlayerCount,
-                Configuration = new GameplayServerConfiguration()
+                SelectionMask = new BeatmapLevelSelectionMask()
                 {
                     BeatmapDifficultyMask = (BeatmapDifficultyMask)server.BeatmapDifficultyMask,
                     GameplayModifiersMask = (GameplayModifiersMask)server.GameplayModifiersMask,

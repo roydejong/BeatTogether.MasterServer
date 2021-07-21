@@ -14,7 +14,7 @@ namespace BeatTogether.MasterServer.Messaging.Messages.User
         public string UserName { get; set; }
         public byte[] Random { get; set; }
         public byte[] PublicKey { get; set; }
-        public GameplayServerConfiguration Configuration { get; set; }
+        public BeatmapLevelSelectionMask Configuration { get; set; }
         public string Secret { get; set; }
         public DiscoveryPolicy DiscoveryPolicy { get; set; }
         public string Code { get; set; }
@@ -25,19 +25,21 @@ namespace BeatTogether.MasterServer.Messaging.Messages.User
             bufferWriter.WriteString(UserName);
             bufferWriter.WriteBytes(Random);
             bufferWriter.WriteVarBytes(PublicKey);
-            Configuration.WriteTo(ref bufferWriter);
-            bufferWriter.WriteString(Secret);
         }
 
         public void WriteTo(ref SpanBufferWriter bufferWriter, uint protocolVersion)
         {
             WriteTo(ref bufferWriter);
 
-            if (protocolVersion >= 3)
+            Configuration.WriteTo(ref bufferWriter);
+            bufferWriter.WriteString(Secret);
+            
+            if (protocolVersion < 4)
             {
                 bufferWriter.WriteVarInt((int)DiscoveryPolicy);
-                bufferWriter.WriteString(Code);
             }
+            
+            bufferWriter.WriteString(Code);
         }
 
         public void ReadFrom(ref SpanBufferReader bufferReader)
@@ -46,20 +48,22 @@ namespace BeatTogether.MasterServer.Messaging.Messages.User
             UserName = bufferReader.ReadString();
             Random = bufferReader.ReadBytes(32).ToArray();
             PublicKey = bufferReader.ReadVarBytes().ToArray();
-            Configuration = new GameplayServerConfiguration();
-            Configuration.ReadFrom(ref bufferReader);
-            Secret = bufferReader.ReadString();
         }
 
         public void ReadFrom(ref SpanBufferReader bufferReader, uint protocolVersion)
         {
             ReadFrom(ref bufferReader);
+            
+            Configuration = new BeatmapLevelSelectionMask();
+            Configuration.ReadFrom(ref bufferReader);
+            Secret = bufferReader.ReadString();
 
-            if (protocolVersion >= 3)
+            if (protocolVersion < 4)
             {
                 DiscoveryPolicy = (DiscoveryPolicy)bufferReader.ReadVarInt();
-                Code = bufferReader.ReadString();
             }
+            
+            Code = bufferReader.ReadString();
         }
     }
 }

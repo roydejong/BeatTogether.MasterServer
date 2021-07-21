@@ -6,7 +6,7 @@ using Krypton.Buffers;
 
 namespace BeatTogether.MasterServer.Messaging.Messages.User
 {
-    public class BroadcastServerStatusRequest : IEncryptedMessage, IReliableRequest
+    public class BroadcastServerStatusRequest : IEncryptedMessage, IReliableRequest, IVersionedMessage
     {
         public uint SequenceId { get; set; }
         public uint RequestId { get; set; }
@@ -19,7 +19,7 @@ namespace BeatTogether.MasterServer.Messaging.Messages.User
         public int MaximumPlayerCount { get; set; }
         public DiscoveryPolicy DiscoveryPolicy { get; set; }
         public InvitePolicy InvitePolicy { get; set; }
-        public GameplayServerConfiguration Configuration { get; set; }
+        public BeatmapLevelSelectionMask SelectionMask { get; set; }
         public byte[] Random { get; set; }
         public byte[] PublicKey { get; set; }
 
@@ -31,10 +31,21 @@ namespace BeatTogether.MasterServer.Messaging.Messages.User
             bufferWriter.WriteString(Secret);
             bufferWriter.WriteString(Password);
             bufferWriter.WriteVarInt(CurrentPlayerCount);
-            bufferWriter.WriteVarInt(MaximumPlayerCount);
-            bufferWriter.WriteUInt8((byte)DiscoveryPolicy);
-            bufferWriter.WriteUInt8((byte)InvitePolicy);
-            Configuration.WriteTo(ref bufferWriter);
+        }
+
+        public void WriteTo(ref SpanBufferWriter bufferWriter, uint protocolVersion)
+        {
+            WriteTo(ref bufferWriter);
+
+            if (protocolVersion < 4)
+            {
+                bufferWriter.WriteVarInt(MaximumPlayerCount);
+                bufferWriter.WriteUInt8((byte)DiscoveryPolicy);
+                bufferWriter.WriteUInt8((byte)InvitePolicy);
+            }
+            
+            SelectionMask.WriteTo(ref bufferWriter);
+            
             bufferWriter.WriteBytes(Random);
             bufferWriter.WriteVarBytes(PublicKey);
         }
@@ -47,11 +58,22 @@ namespace BeatTogether.MasterServer.Messaging.Messages.User
             Secret = bufferReader.ReadString();
             Password = bufferReader.ReadString();
             CurrentPlayerCount = bufferReader.ReadVarInt();
-            MaximumPlayerCount = bufferReader.ReadVarInt();
-            DiscoveryPolicy = (DiscoveryPolicy)bufferReader.ReadByte();
-            InvitePolicy = (InvitePolicy)bufferReader.ReadByte();
-            Configuration = new GameplayServerConfiguration();
-            Configuration.ReadFrom(ref bufferReader);
+        }
+
+        public void ReadFrom(ref SpanBufferReader bufferReader, uint protocolVersion)
+        {
+            ReadFrom(ref bufferReader);
+            
+            if (protocolVersion < 4)
+            {
+                MaximumPlayerCount = bufferReader.ReadVarInt();
+                DiscoveryPolicy = (DiscoveryPolicy) bufferReader.ReadByte();
+                InvitePolicy = (InvitePolicy) bufferReader.ReadByte();
+            }
+
+            SelectionMask = new BeatmapLevelSelectionMask();
+            SelectionMask.ReadFrom(ref bufferReader);
+            
             Random = bufferReader.ReadBytes(32).ToArray();
             PublicKey = bufferReader.ReadVarBytes().ToArray();
         }
